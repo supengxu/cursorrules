@@ -1,0 +1,580 @@
+---
+description: 北森服务端开发规范
+alwaysApply: false
+---
+
+# 变更记录
+
+| Version | Author | Date |
+|---------|--------|------|
+| 0.1 | wanglei5 | 2019-09-27 |
+| 0.2 | wanglei5 | 2020-09-14 |
+
+# 适用范围
+
+- 基于北森微服务体系的微服务
+- 站点开发
+- 对存储、缓存、消息系统的使用
+
+# 概述
+
+## 目的
+
+规范北森服务端开发的规范性，提高代码及服务的质量，提供标准应用场景编写示例，进而保障系统的稳定性。
+
+# 代码规范
+
+## C#代码规范
+
+请参考: C#代码规范
+
+## Java代码规范
+
+请参考: Java代码规范
+
+# 框架及类库要求
+
+**要求**：不符合下列版本要求的，需自行升级至最新稳定版本。
+
+| 框架 | 版本要求 | 备注 |
+|------|---------|------|
+| .Net Framework | 4.5 | 不允许擅自升级Framework版本 |
+| ESB框架 | >= 99 | |
+| MRest框架 | >= 202 | |
+| 触发器组件版本 | >= 223 | |
+| Beisen.DynamicScript.SDK | >= 836 | |
+| Beisen.ESB.ClientProxyFactoryV2 | >= 443 | |
+| Beisen.Quark.QuarkClient | >= 1.5.3 | 新应用使用QuarkClient进行开发 |
+| Beisen.CassandraV2.dll | >= 1.1.0.985 | 新应用不允许直接调用Cassandra，应该使用BeisenCloud接口 |
+| Beisen.SearchV3.dll | >= 1.1.0.936 | 新应用不允许直接调用Elasticsearch，应该使用BeisenCloud接口 |
+| Beisen.Data.dll | >= 1.1.0.9 | |
+
+# 服务业务层开发规范
+
+## 通用规范与实践
+
+### 健康检查
+
+- ESB&MRest框架默认整合健康检查
+- 基于其它框架的站点服务必须整合健康检查（健康检查规范请参考：站点健康检查规范）
+
+### .Net特性使用规范
+
+**.Net 高级特性**：
+- 【建议】ESB框架内禁止使用反射
+- 【建议】尽量避免使用动态编译
+- 【强制】禁止开发人员手动创建AppDomain
+- 【强制】禁止开发人员自己跨AppDomain通信
+
+**.Net运行时高级特性**：
+- 【强制】ESB框架内禁止手动控制GC
+- 【建议】尽量不手写析构函数
+- 【强制】禁止使用unsafe，禁止自己使用P/Invoke
+- 【建议】不要async关键字与Task.Result/Task.Wait()混用
+
+### Java特性使用规范
+
+暂无
+
+### 业务设计最佳实践
+
+- 【建议】导入与导出数据类的服务改变产品设计流程，使用异步导出文件生成之后通知用户去下载。
+- 【建议】人员类的数据读取使用推荐先聚合要取得的参数然后调用批量接口：
+  - 【案例】获取人员信息for循环调用Account的GetStaffByIds，该接口本身就是批量接口可以一次传递多个参数一次性取出所有想要的人员信息。
+  - 【案例】获取所有组织for循环调用Account的GetOrganization，该接口只有一个参数为租户ID，在一个应用的一次请求内其实只需要调用一次就够了。
+
+## ESB
+
+### 代码命名规范
+
+- 【强制】项目名称&命名空间规范，两者均不能有下一层级。
+- 【强制】ServiceInterface（接口层）：`Beisen.{XXX}.ServiceInterface`，其中XXX不允许超过20个字符，且不允许包含"."
+- 【强制】ServerImp（实现层）：`Beisen.{XXX}.ServerImp`
+
+### 接口定义规范
+
+- 【强制】项目添加引用System.Runtime.Serialization，接口层命名格式 "I{XXX}Provider"，打上标签 `[ServiceContract]`、`[OperationContract]`
+- 【强制】Action名称在一个ESB组件内全局唯一，不允许重复。
+- 【强制】相同的ESB组件同一个接口有且只能被一个实现类实现，不允许被多个实现类实现，因为在同一ESB框架内部Host时会造成Action名称重复错误
+- 【强制】实现层命名格式 "{XXX}Provider"，必须实现单例模式且实现方法修饰符必须 public，内部私有函数不限制
+- 【强制】用于传输的实体，需打标签 `[DataContract]`，`[DataMember]`
+- 【强制】触发器脚本中，除 Int、String、Bool 等C#常规数据类型外，如需使用自定义类型，需在远程配置文件 AppFrameworkConfigV5 的ServiceKnownAssemblies 节点下配置，目前业务常用类型以及多租赁的实体已配置完毕，如果还需要配置请联系微服务组
+- 【强制】枚举必须从0开始
+- 【强制】ESB接口不允许定义租户ID、用户ID，需要通过ApplicationContext读取和传递
+
+### 框架使用规范
+
+- 【强制】ESB框架新建应用只允许使用V2版本，旧版V1应用要求在2019年12月31日前迁移至V2
+- 【建议】ActiveService，UnActiveService方法中不允许执行超过60秒的逻辑，建议5秒
+- 【强制】禁止使用ApplicationContext传递业务相关参数与属性值
+- 【强制】ApplicationContext跨线程传递必须同时显示传递TenantID，UserID两个值
+- 【强制】ApplicationContext宿主为IIS的可以使用，Windows服务需要显式传参
+- 【强制】ApplicationContext的Value只允许使用简单类型
+- 【建议】ApplicationContext，Value长度小于5000字符
+- 【强制】禁止手动替换ESB框架及组件内容，发布需要使用微服务部署工具
+- 【强制】禁止应用输出文件到ESB部署目录及其子目录，如果一定要输出文件，请输出至`D:\BeisenAppData\{ApplicationName}`。该目录内文件原则上最大保留5天。
+
+### 框架使用实践
+
+- 【建议】ESB Server可以根据来源使用限流，限制维度为 来源IP+QPS，QPS值按服务器负载确定。线上开启限流请联系运维团队。
+
+- 【建议】超时重试策略（使用QuarkClient）在保证服务接口幂等的前提下，推荐使用QuarkClient的超时重试策略，使用方法如下：
+
+```csharp
+var testingProvider = QuarkClientProxy<ILogicSimulationProvider>
+                .GetInstance("IntegrationTest")
+                .WithRetryPolicy(
+                    retryTimes: 3,    // 调用失败后将重试 3 次
+                    millisecondsInterval: 500,    // 重试的间隔时间为 500 ms
+                    millisecondsIncrement: 500,    // 每次重试的间隔时间增加 500 ms (即 500 ms, 1000 ms, 1500 ms)
+                    // 异常断言，表示仅在捕获通信异常并且通信异常 (CommunicationException) 的内部异常为套接字异常 (SocketException) 的时候进行重试
+                    exceptionPredicate: ex => ex is CommunicationException && ex.InnerException is SocketException
+                );
+```
+
+### ESB接口与服务下线流程
+
+- 【强制】ESB Server端接口或服务下线需要持续观察至少1个迭代调用与契约引用状况
+- 【建议】通过调用链查看服务被调用状况
+- 【建议】通过运维工具查看ServiceInterface依赖状况
+- 【强制】如果发现依然有调用或者依赖关系，必须联系调用方确认是否可以进行下线操作
+- 【强制】确认各个依赖方下线时间后，需要提前1个迭代通过ops@beisen.com邮箱发送全体研发邮件，告知下线时间
+- 【建议】下线时间节点前至少1周，需要再次通过ops@beisen.com邮箱发送全体研发邮件，强调下线时间
+
+## MRest
+
+### 命名空间规范
+
+【强制】必须按照以下命名方式进行命名
+
+- ServiceInterface（接口层）：`Beisen.{XXX}.ServiceInterface`
+- ServerImp（实现层）：`Beisen.{XXX}.ServiceImp`
+
+两者均不能有下一层级。
+
+例如，以下是错误命名：
+
+- ServiceInterface：`Beisen.{XXX}.ServiceInterface.Providers`
+- ServerImp：`Beisen.{XXX}.ServiceImp.Providers`
+
+### 标签契约规范
+
+1. 【强制】接口层命名格式 "I{XXX}Provider"，必须打上标签 `[ServiceContract]`、`[OperationContract]`、`[DynamicMicroService]`、`[DynamicRest]`，例如：
+
+```csharp
+[ServiceContract]
+[DynamicMicroService(Name = "User", Description = "用户信息存取")]
+public interface IUserProvider
+{
+    [OperationContract]
+    [DynamicRest(HttpVerb = "POST", UrlTemplate = "user?tenantid={tenantid}", InterceptAction = DynamicScriptAction.None, Description = "添加一个用户")]
+    User AddUser(int tenantid, User user);
+ 
+    [OperationContract]
+    [DynamicRest(HttpVerb = "DELETE", UrlTemplate = "user?tenantid={tenantid}&userId={userId}", InterceptAction = DynamicScriptAction.None, Description = "删除用户")]
+    bool DeleteUser(int tenantid, int userId);
+}
+```
+
+**DynamicMicroService 参数**：
+
+| 参数 | 描述 | 例子 | 是否必填 |
+|------|------|------|----------|
+| Name | 接口资源名，概念同Restful API。 | Name = "User" | 是 |
+| Description | 接口资源描述,强烈建议每一个接口资源都写上有意义的描述 | Description = "用户信息存取" | 是 |
+
+**DynamicRest 参数**：
+
+| 参数 | 描述 | 例子 | 是否必填 |
+|------|------|------|----------|
+| HttpVerb | Http请求谓词 | HttpVerb = "POST" | 是 |
+| UrlTemplate | URL地址模板 | UrlTemplate = "user?tenantid={tenantid}" | 是 |
+| InterceptAction | 拦截动作，用于MRest的二次开发，原理与同步触发器服务相同，在MRest接口请求前后进行拦截处理，通常情况下此值为 DynamicScriptAction.None | InterceptAction = DynamicScriptAction.After | 是 |
+| Description | 接口描述,强烈建议每一个接口都写上有意义的描述 | Description = "更新用户状态" | 是 |
+
+2. 【强制】所有MRest请求必须在 Request Header 里加入 Content-type,值为：`application/x-www-form-urlencoded` 或者 `application/json`。
+
+3. 【强制】所有MRest接口必须有返回值，不能是 void，参数不能有ref、out等修饰。
+
+4. 【强制】所有MRest接口参数不能是可空类型，例如：`DateTime? StartDate`。
+
+5. 【强制】UrlTemplate中的参数名与ESB接口参数名保持一致，QueryString类型的参数必须配置在UrlTemplate中，实体类型参数名不需要配置在UrlTemplate中。
+
+6. 【强制】Content-type 为 `application/x-www-form-urlencoded` 时，json参数必须有参数字段名，【例如：`dataobject={"Name","韩梅梅",XXX}` (dataobject:Name='韩梅梅'&XXX )】,为 `application/json` 时，则不能有参数字段名【例如：`{"Name","韩梅梅",XXX}`】
+
+7. 【强制】Action名称在一个ESB组件内全局唯一，不允许重复。
+
+8. 【强制】同一个接口有且只能被一个实现类实现，不允许被多个实现类实现，因为在同一ESB框架内部Host时会造成Action名称重复错误【不同的ESB组件可忽略此限制】。
+
+9. 【强制】传递的Json串内的字段类型必须与定义的一致，不一致的将会导致转换失败。例如：
+
+```csharp
+[DataContract]
+public class SignSettingParam
+{
+    [DataMember]
+    [JsonProperty("markid")]
+    public string DataId { get; set; }
+
+    [DataMember]
+    [JsonProperty("controlType")]
+    public string ControlType { get; set; }
+
+    [DataMember]
+    [JsonProperty("selected")]
+    public string SelectedId { get; set; }
+
+    [DataMember]
+    [JsonProperty("member")]
+    public string ControlItemType { get; set; }
+}
+```
+
+以下是错误的Json串格式：
+
+```json
+{
+	"markid": "1693c120-2e0f-4247-9732-0c23253a1f29",
+	"controlType": 0,
+	"selected": "",
+	"member": 1
+}
+```
+
+对应的正确的Json串格式为：
+
+```json
+{
+    "markid": "1693c120-2e0f-4247-9732-0c23253a1f29",
+    "controlType": "这是controlType",
+    "selected":"这是selected",
+    "member": "这是member"
+}
+```
+
+字符串类型必须用双引号 ""。
+
+10. 【强制】实现层命名格式 "{XXX}Provider"，必须实现单例模式且实现方法修饰符必须 public，内部私有函数不限制，例如：
+
+```csharp
+public class UserProvider
+{
+  //单例
+  private static readonly UserProvider instance = new UserProvider();
+  public static UserProvider Instance
+  {
+        get
+        {
+            return instance;
+        }
+  }
+ 
+   private User AddUser(User user)
+   {
+      SqlHelper.AddUser(user);
+      return user;
+   }
+ 
+   public User AddUser(int tenantid, User user)
+   {
+       user.TenantId=tenantid;
+       return AddUser(user);
+   }
+}
+```
+
+11. **传输实体**
+
+- 【强制】用于传输的实体，需打标签 `[DataContract]`，`[DataMember]`标签
+- 【建议】不需要传输的实体，可以不打标签。
+- 【建议】接口返回的实体可不打这两标签。
+
+例如：
+
+```csharp
+[DataContract]  
+public class User
+{
+    /// <summary>
+    /// 租户标识
+    /// </summary>
+    [DataMember(Name = "tenant_id")]  //Name属性可默认不填
+    public int TenantId { get; set; }
+ 
+    /// <summary>
+    /// 用户标识
+    /// </summary>
+    [DataMember(Name = "user_id")]
+    public int UserId { get; set; }
+ 
+    //年龄
+    [DataMember(Name = "age")]
+    public int Age { get; set; }
+ 
+    /// <summary>
+    /// 邮箱地址
+    /// </summary>
+    [DataMember(Name = "email")]
+    public string Email { get; set; }
+ 
+    /// <summary>
+    /// 姓名
+    /// </summary>
+    [DataMember(Name = "name")]
+    public string Name { get; set; }
+ 
+    /// <summary>
+    /// 性别
+    /// </summary>
+    [DataMember(Name = "sex")]
+    public Sex Sex { get; set; }
+ 
+    /// <summary>
+    /// 职位
+    /// </summary>
+    [DataMember(Name = "position")]
+    public string Position { get; set; }
+ 
+ 
+    /// <summary>
+    /// 判断回复人是否被关注
+    /// </summary>
+    [DataMember(Name = "is_follow")] 
+    public bool IsFollow { get; set; }
+ 
+    /// <summary>
+    /// 在线状态
+    /// </summary>
+    [DataMember(Name = "online")]
+    public int Online { get; set; }
+ 
+    /// <summary>
+    /// 创建时间
+    /// </summary>
+    [DataMember(Name = "create_time")]
+    public DateTime CreateTime { get; set; }
+ 
+    /// <summary>
+    /// 头像
+    /// </summary>
+    [DataMember(Name = "user_avatar")]
+    public UserAvatar UserAvatar { get; set; }
+}
+ 
+//枚举类型必须打标签  [EnumMember] 
+public enum Sex
+{
+    [EnumMember]
+    Male = 0,
+ 
+   [EnumMember]
+    Female = 1
+}
+```
+
+12. 【强制】参数模板中参数名称不允许使用`_type`、`_action`以及C#的关键字
+
+## ASP.Net/ASP.Net Core
+
+### 接口定义规范
+
+- 【建议】要求严格使用http Method原始语义定义接口
+- 【强制】GET 获取数据，不允许使用GET请求进行数据提交操作，不允许定义Body
+- 【建议】PUT 创建
+- 【建议】POST 更新
+- 【强制】DELETE 删除，不允许定义Body
+- 【建议】HttpHeader的Value不允许超过32个字符，且不允许有特殊字符
+- 【强制】自定义Header必须增加`x-Beisen-`前缀
+- 【强制】所有接口必须支持使用Swagger 2.0描述
+- 【强制】接口参数及返回值不允许为dynamic，object等非确定类型
+- 【建议】返回值Model，尽量使用复合不要使用继承
+- 【建议】接口调用方超时时间建议为1分钟
+- 【强制】接口中进行跳转类型的操作禁止在代码中写死跳转域名
+
+### 状态码定义规范
+
+- 【强制】状态码定义需按照 RFC标准协议进行定义
+
+- 【建议】异常的状态Body需要返回可被解析的描述性信息
+
+```json
+{ 
+	"ErrorMessage": "获取多租赁接口失败", 
+	"ErrorCode":123
+}
+```
+
+### 客户端使用实践
+
+【建议】建议使用QuarkClient进行Http REST类型的调用（文档与说明）
+
+```csharp
+public class Pet
+{
+    public string Name { get; set; }
+
+    public string Category { get; set; }
+}
+
+//GET请求
+var httpClient = QuarkClientProxy.HttpClient;
+var result = httpClient
+    // 设置查询参数
+    .Query("status", "sold")
+    // 发送 GET 请求并获取 json 类型的响应
+    .Get<Pet>("http://petstore.swagger.io/v2/pet/findByStatus");
+// 打印结果
+result.Dump();
+
+//POST请求
+var httpClient = QuarkClientProxy.HttpClient;
+var jsonParams = new {
+    category = new {
+        id = 8,
+        name = "gold"
+    },
+    name = "doggie",
+    status = "available"
+};
+// 发送 POST 请求，默认 Content-Type: application/json
+httpClient.Post("https://petstore.swagger.io/v2/pet", jsonParams);
+
+//PUT请求
+var httpClient = QuarkClientProxy.HttpClient;
+var jsonParams = new {
+    id = 1,
+    name = "my.doggie",
+    status = "sold"
+};
+var result = httpClient.Put<Pet>("https://petstore.swagger.io/v2/pet", jsonParams);
+result.Dump();
+
+//DELETE请求
+var httpClient = QuarkClientProxy.HttpClient;
+int pedId = 1;
+httpClient
+    // 设置请求头
+    .Header("api_key", "xxxxxx")
+    .Delete($"https://petstore.swagger.io/v2/pet/{petId}");
+```
+
+## 信创（QuarkServer）
+
+### 框架使用规范
+
+- 【强制】使用与ESB兼容的通信方式请按照ESB规范
+- 【强制】使用与MRest兼容的开发方式，请参考MRest规范
+- 【强制】使用与IIS站点兼容的开发方式，请参考站点规范
+- 【强制】开源三方类库/框架使用需要经过架构评审
+- 【建议】内网服务之间通信，推荐使用WCF方式进行通信
+- 【建议】基于平台进行接口扩展或者使用触发器的场景，推荐使用MRest方式进行开发
+
+# 数据访问层开发规范
+
+## 通用规范
+
+### 重试与约束
+
+访问远程服务可能因为网络、服务端资源、客户端资源等原因出现超时，需要进行异常处理
+
+超时异常的通常处理方式是重试
+
+重试需要考虑如下因素：
+
+- 幂等，操作是否幂等，非幂等的操作不能重试
+- 并发，重试可能会影响并发的结果，重试之前应该分析重试对并发操作的影响，确定是否可以重试
+- 重试次数，不是所有的场景都可以通过重试解决，所以重试应该有次数限制，一般3次
+- 重试间隔，连续的重试不一定能解决问题，还可能会对服务端产生较大压力，可以在两次重试之间sleep一段时间，推荐1秒
+- 总的执行时间，应该控制一次操作的总时间，如果超过这个时间则停止重试，抛出异常
+
+### 重试示例
+
+```csharp
+internal static class RetryHelper
+{
+    private static readonly LogWrapper _logger = new LogWrapper();
+
+    public static void Execute(Action action, Stopwatch watch)
+    {
+        var config = SteppeConfig.Instance.RetryConfig;
+
+        int maxTryCount = config.GetMaxTryCount();
+        int timeout = config.OperationTimeoutMillis;
+        int count = 0;
+
+        while (true)
+        {
+            try
+            {
+                action();
+
+                return;
+            }
+            catch (Exception ex)
+            {
+                if (!ExceptionHelper.IsServiceException(ex))
+                {
+                    throw;
+                }
+                ++count;
+                if (count >= maxTryCount || watch.ElapsedMilliseconds >= timeout)
+                {
+                    throw;
+                }
+
+                _logger.Debug(ex);
+
+                Thread.Sleep(config.DelayMillisWhenException);
+            }
+        }
+    }
+}
+```
+
+## 数据库
+
+请参考: 数据库规范
+
+## Redis
+
+请参考: Redis使用规范
+
+## Kafka
+
+请参考: Kafka使用规范
+
+## Steppe
+
+请参考: Steppe使用规范
+
+- 【强制】新建应用禁止直接使用Cassandra、Elasticsearch，推荐使用Steppe，Steppe包含了自动重试、一致性服务等特性。
+
+## Cassandra
+
+请参考: Cassandra使用规范
+
+## ElasticSearch
+
+请参考: Elasticsearch使用规范
+
+# 服务部署和跨DC通讯规范
+
+- 【强制】业务服务默认部署在生产机房（博兴）。
+- 【强制】客开服务默认部署在用户态容器环境。
+- 【强制】生产机房（博兴）业务服务禁止强依赖部署在公有云的业务服务。
+- 【强制】生产服务禁止强依赖非生产环境服务（包括但不限于：Labs、沙箱、开发、测试）。
+- 【强制】RPC调用原则上不允许调用目标为私有IP、跨DC的调用，例如：不允许从公有云服务调用生产机房（博兴）的微服务/DFS/数据库等服务，不允许从A公有云调用B公有云的微服务等，不允许从生产机房调用部署在公有云的微服务。如果架构设计上需要跨DC调用，请参考下文【建议】。
+- 【解释】各DC间的内网通讯建立在VPN通道上，相较于生产机房内的通讯，无法保障链路的SLA、低延迟等，基于VPN建立的RPC无法保障稳定可靠。当现有服务存在此类RPC时，需要谨慎考虑容错性。
+- 【例外】同城DC间建立了光纤专线的除外。（例如博兴机房和金山云北京区）
+- 【建议】当业务特征不依赖italent的登录态校验及鉴权，且符合以下任意条件的服务，可考虑部署在公有云环境，否则不建议。
+  - 业务特征有极强的计算资源弹性扩缩容诉求。（例如测评考试相关业务）
+  - 业务特征对公有云资源有极大依赖，并且数据获取来源不是生产机房。（例如DFS相关站点）
+  - 业务特征对公有云资源有极大依赖，并且主要使用公有云能力完成业务的。（例如基于公有云公网IP池的代理集群）
+  - 业务特征对弹性带宽有极大依赖，可能对生产机房带宽产生冲击。（例如前端静态资源）
+  - 各数据中心之间的数据同步业务。（例如灾备数据同步）
+- 【建议】DC间的服务调用建议以公网调用为视角设计，考虑网络延时、网络中断、安全性、带宽占用等影响因素，技术方案参考：
+  - 公网调用，使用OpenApi等手段。
+  - 异步处理，能否容忍延迟。
+  - 还是依赖VPN，但能容错。
+
+**注**：以上RPC指北森自研自部署的服务，不含调用第三方服务。
