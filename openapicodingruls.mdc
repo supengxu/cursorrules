@@ -1,0 +1,785 @@
+---
+description: OpenAPI 接口开发规则
+alwaysApply: false
+---
+
+# OpenAPI 接口开发规范规则
+
+本文档基于北森开放平台接口开发规范，整理出适用于 Cursor 开发的规则和最佳实践。
+
+## 一、强制性规则（必须遵守）
+
+### 1.1 URL Path 规范
+
+**规则：Url 的 Path 部分不能添加任何可变参数**
+
+- ❌ **错误示例**：`https://openapi.italent.cn/TenantBase/v1/{tenantId}/EmpSubset/{objectName}/Timewindow/Search`
+- ✅ **正确示例**：`https://openapi.italent.cn/TenantBase/v1/EmpSubset/Timewindow/Search?objectName={objectName}`
+
+**原因**：可变参数出现在 Path 部分会导致相同接口的不同参数请求无法被 Kong 正确聚合。
+
+**实现要求**：
+- 所有可变参数必须放在 QueryString 中（GET 请求）或 Body 中（POST/PUT/PATCH 请求）
+- 禁止在 Route 特性中使用 `{参数名}` 形式的路径参数
+
+### 1.2 租户ID获取规范
+
+**规则：禁止一切外界直接传递租户ID的行为**
+
+- ❌ **禁止**：在 QueryString、Header、Body 中显式传递租户ID
+- ❌ **禁止**：从请求参数中获取租户ID的代码逻辑
+- ✅ **正确**：从上下文环境中获取租户ID
+
+**实现方式**：
+
+```csharp
+// 使用 OpenApiApplicationContextFilter 过滤器自动设置上下文
+[OpenApiApplicationContextFilter]
+public class CatalogController : ApiController
+{
+    // 在业务代码中通过 ApplicationContext 获取租户ID
+    var tenantId = ApplicationContext.Current.TenantId;
+    var userId = ApplicationContext.Current.UserId;
+    
+    // 注意：如果 UserId <= 0，需要设置为系统用户ID
+    if (ApplicationContext.Current.UserId < 0)
+        ApplicationContext.Current.UserId = BaseConstV2.SysUserID;
+}
+```
+
+**请求头说明**：
+- 租户ID请求头：`X-PAAS-Tenant-ID`（由 Kong 自动设置，业务代码从 `ApplicationContext.Current.TenantId` 获取）
+- 用户ID请求头：`X-PAAS-User-ID`（由 Kong 自动设置，业务代码从 `ApplicationContext.Current.UserId` 获取）
+- 应用名称请求头：`X-PAAS-App-Name`（由 Kong 自动设置）
+
+### 1.3 三级目录结构规范
+
+**规则：接口路径必须遵循三级目录结构**
+
+格式：`{产品名称}/{场景或领域名词}/{行为谓语动词}`
+
+**目录命名规范**：
+- **一级目录**：产品名称（如 `Learning`、`Attendance`）
+- **二级目录**：场景或领域名词，必须是专属名词
+  - ✅ 正确：`合同协议`、`法人公司`、`考勤档案`、`薪资档案`、`目录`、`课程`、`考试`
+  - ❌ 错误：`消息模板的接口`、`缓存的接口`（禁止出现"XXX的接口"形式）
+- **三级目录**：行为谓语动词，接口名称
+  - ✅ 正确：`获取员工信息数据`、`新增员工信息`、`修改员工信息`、`删除任职记录`、`根据UserId集合查询员工信息`
+  - ❌ 错误：`发送消息的接口`（禁止出现"XXX的接口"形式）
+  - ✅ 可以加上修饰短语，但不要过长
+  - ✅ 命名结尾不要有句号或点
+
+**实现示例**：
+
+```csharp
+[RoutePrefix("api/v1/catalog")]  // 二级目录：catalog（目录）
+[OpenApiApplicationContextFilter]
+public class CatalogController : ApiController
+{
+    [HttpPost]
+    [Route("getCatalogByIds")]  // 三级目录：getCatalogByIds（根据ID获取目录）
+    public OpenResult<ApiResponseCatalog, TotalSearchAfter> GetCatalogByIds([FromBody] ApiRequestCatalog apiRequest)
+    {
+        // ...
+    }
+}
+```
+
+### 1.4 接口Path风格规范
+
+**规则：接口Path必须遵循统一风格**
+
+格式：`{微服务唯一标识}/api/{版本号}/{代表方法合集分类的Path}/{能点明当前接口作用的方法名}`
+
+**示例**：
+```
+https://openapi.italent.cn/LearningOpen/api/v1/Catalog/GetCatalogByIds
+```
+
+**说明**：
+- `LearningOpen`：微服务唯一标识（在注册接口时指定，不会变更）
+- `api`：固定前缀
+- `v1`：版本号（从1开始递增）
+- `Catalog`：方法合集分类的Path（对应 Controller 名称，去掉 Controller 后缀）
+- `GetCatalogByIds`：具体接口方法名
+
+### 1.5 接口命名规范
+
+**规则：接口命名采用帕斯卡命名法（PascalCase）**
+
+- ✅ 正确：`GetCatalogByIds`、`AddCatalog`、`UpdateCatalog`、`DeleteCatalog`
+- ❌ 错误：`getCatalogByIds`、`add_catalog`、`Add-Catalog`
+
+**实现要求**：
+- Controller 类名：`CatalogController`（PascalCase + Controller 后缀）
+- Action 方法名：`GetCatalogByIds`（PascalCase）
+- Route 特性中的路径：`getCatalogByIds`（camelCase，与参数命名保持一致）
+
+### 1.6 返回结果规范
+
+**规则：所有接口必须使用统一的返回结构**
+
+**标准返回格式**：
+
+```csharp
+{
+  "code": "200",           // 返回值编码，string类型
+  "message": "",            // 返回值描述，string类型
+  "data": {                // 返回数据实例
+    // 业务数据
+  }
+}
+```
+
+**实现要求**：
+- 使用 `OpenResult<T>` 或 `OpenResult<T, V>` 作为返回类型
+- `code` 字段：成功为 `"200"`，失败为其他错误码（参考《后端异常规范》）
+- `message` 字段：操作信息，错误时显示具体错误信息
+- `data` 字段：返回的业务数据（使用 `NullValueHandling.Ignore` 忽略 null 值）
+
+**代码示例**：
+
+```csharp
+[HttpPost]
+[Route("getCatalogByIds")]
+public OpenResult<ApiResponseCatalog, TotalSearchAfter> GetCatalogByIds([FromBody] ApiRequestCatalog apiRequest)
+{
+    return OpenResult<ApiResponseCatalog, TotalSearchAfter>
+        .Success()
+        .Continue(res =>
+        {
+            // 业务逻辑
+            res.Data = new BusinessData<ApiResponseCatalog, TotalSearchAfter>
+            {
+                Paging = new TotalSearchAfter { /* ... */ },
+                Items = list
+            };
+        });
+}
+```
+
+**分页数据返回格式**：
+
+```csharp
+{
+  "code": "200",
+  "message": "",
+  "data": {
+    "paging": {
+      "total": 382,        // 总数据数
+      "capacity": 15,       // 当前页大小
+      "page": 0            // 当前页码（从0开始）
+    },
+    "items": []            // 数据列表
+  }
+}
+```
+
+**SearchAfter 分页返回格式**：
+
+```csharp
+{
+  "code": "200",
+  "message": "",
+  "data": {
+    "paging": {
+      "isLastBatch": false,           // 是否为最后一批数据
+      "nextBatchId": "[1628284892000,-7791339576019124817]",  // 下一批次Id
+      "total": 382                    // 总数据数（可选）
+    },
+    "items": []
+  }
+}
+```
+
+### 1.7 异常编码规范
+
+**规则：异常编码必须参考《后端异常规范》**
+
+**实现要求**：
+- 使用 `I18NProvider.GetCode()` 获取错误码
+- 使用 `I18NProvider.GetMessage()` 获取错误信息
+- 错误信息不应包含"系统错误"等不明确的提示
+
+**代码示例**：
+
+```csharp
+if (string.IsNullOrEmpty(apiRequest.Title))
+{
+    res.Code = I18NProvider.GetCode(I18NConst.CanNotBeNull).ToString();
+    res.Message = I18NProvider.GetMessage(I18NConst.CanNotBeNull, "title");
+    return;
+}
+```
+
+### 1.8 请求参数规范
+
+**规则：参数命名采用 camelCase 命名法（小驼峰，首字母小写）**
+
+**常见参数命名规范**：
+- 用户Id：`userId`
+- 元对象名称：`metaObjectName`
+- 数据Id：`_id`
+- 一页数据共多少条数据：`capacity`
+- 页码数：`page`（从0开始的非负整数）
+- 总数据数：`total`
+- 排序：`sort`
+
+**特殊规则**：
+- `metaObjectName`：使用全名，例如 `UPaaSDemo.Schedule`
+- `page`：从0开始的非负整数
+- 扩展字段：使用字典模式传递和返回
+
+**扩展字段示例**：
+
+```csharp
+{
+  "extTestId221": "www-233-aad",
+  "extMedal": "特色",
+  "extTag": "知识巅峰"
+}
+```
+
+**数组参数规范**：
+- ❌ 禁止使用数组格式：`CreateStudent(Student[] students)`
+- ✅ 必须使用集合格式：`CreateStudent(List<Student> students)`
+- **原因**：数组格式会导致 XML Swagger 解析异常
+
+**代码示例**：
+
+```csharp
+public class ApiRequestCatalog
+{
+    /// <summary>
+    /// 目录ID列表
+    /// </summary>
+    [JsonProperty("catalogIds")]
+    public string[] CatalogIds { get; set; }  // 注意：虽然这里用数组，但建议改为 List<string>
+    
+    /// <summary>
+    /// 自定义字段
+    /// </summary>
+    [JsonProperty("extFields")]
+    public Dictionary<string, string> ExtFields { get; set; }
+}
+```
+
+### 1.9 HTTP 请求协议规范
+
+**规则：不同操作使用对应的 HTTP 方法**
+
+**协议使用场景**：
+- **GET**：检索位于指定 URI 处的资源的表示形式
+  - 参数传递：统一使用 QueryString 方式
+  - ❌ 禁止：在 GET 接口提供 Body 参数
+- **POST**：在指定的 URI 处创建新资源或触发操作
+  - 参数传递：统一使用 Body 的模型
+  - ❌ 不建议：使用 QueryString 方式进行传参
+- **PUT**：在指定的 URI 处创建或替换资源
+  - 应当幂等
+- **PATCH**：对资源执行部分更新
+  - 推荐使用 Patch 请求方式，标注可以进行部分更新，保持幂等性
+- **DELETE**：删除位于指定 URI 处的资源
+  - 建议只使用 QueryString 方式，传递单一数据 id 即可
+  - 应当幂等
+
+**幂等性要求**：
+- GET、PUT、DELETE、HEAD 和 PATCH 操作应当是幂等的
+- 对同一资源重复进行同一请求应导致同一状态
+
+**代码示例**：
+
+```csharp
+// GET 请求 - 使用 QueryString
+[HttpGet]
+[Route("getCatalogByIds")]
+public OpenResult<ApiResponseCatalog> GetCatalogByIds([FromUri] string catalogId)
+{
+    // ...
+}
+
+// POST 请求 - 使用 Body
+[HttpPost]
+[Route("addCatalog")]
+public OpenResult<ApiResponseAddCatalog> AddCatalog([FromBody] ApiRequestAddCatalog apiRequest)
+{
+    // ...
+}
+
+// PATCH 请求 - 部分更新
+[HttpPatch]
+[Route("updateCatalog")]
+public OpenResult UpdateCatalog([FromBody] PatchCatalogModel data)
+{
+    // ...
+}
+
+// DELETE 请求 - 使用 QueryString
+[HttpDelete]
+[Route("deleteCatalog")]
+public OpenResult DeleteCatalog([FromUri] string _id)
+{
+    // ...
+}
+```
+
+### 1.10 接口注释规范
+
+**规则：所有接口必须添加完整的注释**
+
+**注释要求**：
+- 使用 XML 注释格式
+- 必须包含接口功能说明
+- 必须包含参数说明
+- 必须包含返回值说明
+- 必须包含异常说明（如果有）
+- 必须包含响应码说明
+
+**注释示例**：
+
+```csharp
+/// <summary>
+/// 根据查询类型获取目录信息
+/// </summary>
+/// <param name="apiRequest">请求参数</param>
+/// <returns>目录信息列表</returns>
+/// <response code="200">标准返回</response>
+/// <response code="417">参数错误</response>
+[HttpPost]
+[Route("getCatalogByIds")]
+[ProducesResponseType(typeof(OpenResult<ApiResponseCatalog, TotalSearchAfter>), 200)]
+public OpenResult<ApiResponseCatalog, TotalSearchAfter> GetCatalogByIds([FromBody] ApiRequestCatalog apiRequest)
+{
+    // ...
+}
+```
+
+### 1.11 查询接口规范
+
+**规则：OpenAPI 查询接口必须使用 SearchAfter 进行查询**
+
+**实现要求**：
+- 优先使用 SearchAfter 分页方式（适用于大数据量查询）
+- 如果必须使用传统分页（page + pageSize），需要校验 `PageIndex + PageSize <= 30000`
+- 分页参数校验：
+  - `PageSize`：必须 > 0 且 <= 300
+  - `PageIndex`：必须 >= 1（传统分页）或使用 `BatchId`（SearchAfter 分页）
+
+**代码示例**：
+
+```csharp
+// SearchAfter 分页
+public class ApiRequestSearchAfterBase
+{
+    [JsonProperty("pageSize")]
+    public int PageSize { get; set; }
+    
+    [JsonProperty("batchId")]
+    public string BatchId { get; set; }  // 上一批返回的 nextBatchId
+}
+
+// 传统分页
+public class ApiRequestPagingBase
+{
+    [JsonProperty("pageIndex")]
+    public int PageIndex { get; set; }  // 从1开始
+    
+    [JsonProperty("pageSize")]
+    public int PageSize { get; set; }
+}
+```
+
+### 1.12 自定义字段支持规范
+
+**规则：OpenAPI 查询接口需要支持自定义字段**
+
+**实现要求**：
+- 查询接口应支持 `customFields` 参数，允许客户端指定需要返回的字段
+- 返回数据中包含 `extFields` 字典，存储自定义字段的值
+
+**代码示例**：
+
+```csharp
+public class ApiRequestCatalog
+{
+    /// <summary>
+    /// 自定义字段列表（可选）
+    /// </summary>
+    [JsonProperty("customFields")]
+    public List<string> CustomFields { get; set; }
+}
+```
+
+### 1.13 枚举值参数规范
+
+**规则：OpenAPI 接口参数如果是枚举值，必须使用枚举的值（数值），而不是中文**
+
+**实现要求**：
+- 接口接收枚举参数时，只接受数值字符串（如 `"10"`、`"20"`）
+- ❌ 禁止：接受中文字符串（如 `"公开_公司全员可见"`）
+- 接口返回枚举值时，可以返回数值或中文（根据业务需求）
+- 枚举项需要支持查看可用选项：`[查看可用选项](/#/datasource-options?fieldName=字段名&metaName=实体名)`
+
+**代码示例**：
+
+```csharp
+// 请求参数 - 只接受数值枚举值
+public class ApiRequestAddCatalog
+{
+    /// <summary>
+    /// 共享设置（枚举值：10=公开_公司全员可见，20=仅指定人群可见）
+    /// 示例值："10"
+    /// </summary>
+    [JsonProperty("shareType")]
+    public string ShareType { get; set; }  // 只接受 "10" 或 "20"，不接受中文
+}
+
+// 参数校验
+if (!string.IsNullOrEmpty(apiRequest.ShareType))
+{
+    // 只支持数值枚举值（如"10"），不支持中文字符串
+    if (!re.ValidateNumericEnumValue(apiRequest.ShareType, DataShareCatalogSourceEnum.GetKey, "shareType"))
+    {
+        return;
+    }
+}
+
+// 转换为内部枚举字符串值（如果需要）
+string shareTypeForArgs = apiRequest.ShareType.ConvertToEnumStringValue(DataShareCatalogSourceEnum.GetValue);
+```
+
+## 二、建议性规则（推荐遵守）
+
+### 2.1 接口版本号规范
+
+**规则：建议接口支持多版本**
+
+**版本号格式**：`v{版本号}`，版本号从1开始递增
+
+**示例**：
+- `api/v1/Catalog/GetCatalogByIds`
+- `api/v2/Catalog/GetCatalogByIds`
+
+**实现要求**：
+- 使用 `[RoutePrefix("api/v1/catalog")]` 指定版本号
+- 新版本接口应保持向后兼容，或提供迁移方案
+
+### 2.2 异步接口规范
+
+**规则：长时间执行的业务应使用异步接口**
+
+**异步接口命名规范**：
+- 异步接口名以 `Async` 结尾（例如：`SendMessageAsync`）
+- 结果查询接口名以 `Get` 开头并以 `AsyncStatus` 结尾（例如：`GetSendMessageAsyncStatus`）
+
+**返回结果格式**：
+
+```csharp
+// 只有一个异步逻辑Id
+{
+  "code": "200",
+  "message": "",
+  "data": "a322322d-8e81-1e31-3aab-ca715d8b9728"  // 异步逻辑Id
+}
+
+// 需要同时返回其他数据
+{
+  "code": "200",
+  "message": "",
+  "data": {
+    "_id": "a322322d-8e81-1e31-3aab-ca715d8b9728",
+    "xxx": "xxx"
+  }
+}
+```
+
+**结果查询接口参数**：
+
+```csharp
+// 使用 _id 接受异步参数返回的逻辑Id
+xxxDto GetSendMessageAsyncStatus(string _id);
+```
+
+### 2.3 创建接口返回规范
+
+**规则：创建接口应返回对应的标识**
+
+**返回内容**：
+- 返回创建的数据ID（例如 Model 的 ObjectDataId）
+- 可以同时返回其他必要信息
+
+**代码示例**：
+
+```csharp
+[HttpPost]
+[Route("addCatalog")]
+public OpenResult<ApiResponseAddCatalog> AddCatalog([FromBody] ApiRequestAddCatalog apiRequest)
+{
+    return OpenResult<ApiResponseAddCatalog>
+        .Success()
+        .Continue(re =>
+        {
+            var catalogId = _catalogApp.OpenApiAddCatalog(args);
+            
+            re.Data = new ApiResponseAddCatalog
+            {
+                Id = catalogId  // 返回创建的数据ID
+            };
+        });
+}
+```
+
+### 2.4 删除接口返回规范
+
+**规则：删除接口应返回明确的调用结果**
+
+**返回内容**：
+- 返回删除是否成功
+- 批量删除时返回删除个数
+
+**代码示例**：
+
+```csharp
+[HttpDelete]
+[Route("deleteCatalog")]
+public OpenResult<ApiResponseDeleteCatalog> DeleteCatalog([FromUri] string _id)
+{
+    return OpenResult<ApiResponseDeleteCatalog>
+        .Success()
+        .Continue(re =>
+        {
+            var deletedCount = _catalogApp.DeleteCatalog(_id);
+            
+            re.Data = new ApiResponseDeleteCatalog
+            {
+                DeletedCount = deletedCount,
+                Success = deletedCount > 0
+            };
+        });
+}
+```
+
+## 三、代码实现规范
+
+### 3.1 Controller 实现规范
+
+**基本结构**：
+
+```csharp
+[RoutePrefix("api/v1/catalog")]
+[OpenApiApplicationContextFilter]  // 必须添加，用于设置上下文
+public class CatalogController : ApiController
+{
+    private readonly ICatalogRepository _catalogRepository;
+    private readonly ICatalogApp _catalogApp;
+
+    // 使用构造函数注入
+    public CatalogController(
+        ICatalogRepository catalogRepository,
+        ICatalogApp catalogApp)
+    {
+        _catalogRepository = catalogRepository;
+        _catalogApp = catalogApp;
+    }
+
+    [HttpPost]
+    [Route("getCatalogByIds")]
+    [OpenApiModelValidationFilter]  // 可选，用于模型验证
+    public OpenResult<ApiResponseCatalog, TotalSearchAfter> GetCatalogByIds([FromBody] ApiRequestCatalog apiRequest)
+    {
+        return OpenResult<ApiResponseCatalog, TotalSearchAfter>
+            .Success()
+            .VerifyNullArguments(apiRequest)  // 参数空值校验
+            .Continue(res =>
+            {
+                // 参数校验
+                if (string.IsNullOrEmpty(apiRequest.Title))
+                {
+                    res.Code = I18NProvider.GetCode(I18NConst.CanNotBeNull).ToString();
+                    res.Message = I18NProvider.GetMessage(I18NConst.CanNotBeNull, "title");
+                    return;
+                }
+                
+                // 业务逻辑
+                // ...
+                
+                // 设置返回数据
+                res.Data = new BusinessData<ApiResponseCatalog, TotalSearchAfter>
+                {
+                    Paging = new TotalSearchAfter { /* ... */ },
+                    Items = list
+                };
+            });
+    }
+}
+```
+
+### 3.2 参数校验规范
+
+**校验顺序**：
+1. 使用 `VerifyNullArguments()` 校验参数是否为 null
+2. 校验必填字段
+3. 校验字段格式（GUID、枚举值等）
+4. 校验字段长度
+5. 校验业务规则（数据是否存在、是否重复等）
+
+**代码示例**：
+
+```csharp
+return OpenResult<ApiResponseAddCatalog>
+    .Success()
+    .VerifyNullArguments(apiRequest)  // 1. 参数空值校验
+    .Continue(re =>
+    {
+        // 2. 必填字段校验
+        if (ParameterHelper.IsNullOrEmpty(apiRequest.Title))
+        {
+            re.Code = I18NProvider.GetCode(I18NConst.CanNotBeNull).ToString();
+            re.Message = I18NProvider.GetMessage(I18NConst.CanNotBeNull, "title");
+            return;
+        }
+        
+        // 3. 字段长度校验
+        if (apiRequest.Title.Length > 200)
+        {
+            re.Code = I18NProvider.GetCode(I18NConst.OpenApiTitleExceed).ToString();
+            re.Message = I18NProvider.GetMessage(I18NConst.OpenApiTitleExceed, "title", "200");
+            return;
+        }
+        
+        // 4. GUID 格式校验
+        if (!string.IsNullOrEmpty(apiRequest.ParentCatalogId))
+        {
+            if (ParameterHelper.IsInvalidGuid(apiRequest.ParentCatalogId))
+            {
+                re.Code = I18NProvider.GetCode(I18NConst.IllegalityGuid).ToString();
+                re.Message = I18NProvider.GetMessage(I18NConst.IllegalityGuid, apiRequest.ParentCatalogId);
+                return;
+            }
+        }
+        
+        // 5. 业务规则校验（数据是否存在）
+        var parentCatalog = _catalogRepository.GetById(apiRequest.ParentCatalogId);
+        if (parentCatalog == null || parentCatalog.StdIsDeleted == true)
+        {
+            re.Code = I18NProvider.GetCode(I18NConst.OpenApiDataNotExist).ToString();
+            re.Message = I18NProvider.GetMessage(I18NConst.OpenApiDataNotExist, apiRequest.ParentCatalogId);
+            return;
+        }
+        
+        // 业务逻辑
+        // ...
+    });
+```
+
+### 3.3 分页参数校验规范
+
+**SearchAfter 分页校验**：
+
+```csharp
+public OpenResult<T, V> VerifyPagingArguments(ApiRequestSearchAfterBase apiRequest)
+{
+    VerifyNullArguments(apiRequest);
+    
+    if (this.Code != "200")
+        return this;
+    
+    if (apiRequest.PageSize > 300 || apiRequest.PageSize <= 0)
+    {
+        this.Code = I18NProvider.GetCode(I18NConst.PageSizeError).ToString();
+        this.Message = I18NProvider.GetMessage(I18NConst.PageSizeError);
+        return this;
+    }
+    
+    return this;
+}
+```
+
+**传统分页校验**：
+
+```csharp
+public OpenResult<T, V> VerifyPagingArguments(ApiRequestPagingBase apiRequest)
+{
+    VerifyNullArguments(apiRequest);
+    
+    if (this.Code != "200")
+        return this;
+    
+    if (apiRequest.PageIndex <= 0)
+    {
+        this.Code = I18NProvider.GetCode(I18NConst.PageIndexError).ToString();
+        this.Message = I18NProvider.GetMessage(I18NConst.PageIndexError);
+        return this;
+    }
+    
+    if (apiRequest.PageSize > 300 || apiRequest.PageSize <= 0)
+    {
+        this.Code = I18NProvider.GetCode(I18NConst.PageSizeError).ToString();
+        this.Message = I18NProvider.GetMessage(I18NConst.PageSizeError);
+        return this;
+    }
+    
+    // 校验 from + size 不超过 30000
+    if ((apiRequest.PageIndex + apiRequest.PageSize) > BaseConstV2.FromSizeMaxValue)
+    {
+        this.Code = I18NProvider.GetCode(I18NConst.DataCountLimit).ToString();
+        this.Message = I18NProvider.GetMessage(I18NConst.DataCountLimit, "PageIndex+PageSize", BaseConstV2.FromSizeMaxValue);
+        return this;
+    }
+    
+    return this;
+}
+```
+
+### 3.4 用户ID处理规范
+
+**规则：如果 UserId <= 0，需要设置为系统用户ID**
+
+**代码示例**：
+
+```csharp
+if (ApplicationContext.Current.UserId < 0)
+    ApplicationContext.Current.UserId = BaseConstV2.SysUserID;
+```
+
+### 3.5 扩展字段处理规范
+
+**返回扩展字段**：
+
+```csharp
+var extData = data.GetExtData();
+var customDic = new Dictionary<string, string>();
+foreach (var item in extData)
+{
+    customDic.Add(item.Key, item.Value?.DataValue?.ToString());
+}
+model.ExtFields = customDic;
+```
+
+## 四、注意事项
+
+1. **分层架构**：注意代码分层，Controller 层只负责参数校验和结果返回，业务逻辑放在 App 层或 Service 层
+2. **IOC 注入**：使用构造函数注入，不要使用属性注入
+3. **代码添加到项目**：实现的代码需要添加到对应的项目中
+4. **系统内部实现为准**：编写用例时要看系统内部实现，而不仅仅是 OpenAPI 接口实现，冲突时以系统内部为准
+5. **接口审核**：所有接口必须通过接口审核（参考 OpenAPI、内网API接口审核邮件模板）
+
+## 五、参考资源
+
+- 后端异常规范
+- 注释示例规范
+- OpenAPI、内网API接口审核邮件模板
+- 现有接口实现示例：
+  - `CatalogController.cs`
+  - `CourseController.cs`
+  - `ExaminationController.cs`
+  - `TrainingProgramController.cs`
+
+1、尽量不要使用ObjectData foo = new ObjectData() 这种方式，应该使用对应的强类型对象
+2、编写代码注意分层架构
+3、IOC注入请使用构造函数注入
+4、实现的代码需要添加到项目中
+5、OpenAPI查询接口需要使用SearchAfter进行查询
+6、OpenAPI查询一般来说都需要支持自定义字段
+7、OpenAPI的接口参数如果是枚举值，那么他的参数肯定是枚举的值，而不是中文
+8、OpenAPI的接口参数如果是枚举项，需要支持[查看可用选项](/#/datasource-options?fieldName=字段名&amp;metaName=实体名)这种，客户可以点击查看到可用的枚举项
