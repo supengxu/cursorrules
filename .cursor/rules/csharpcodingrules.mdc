@@ -1,0 +1,378 @@
+---
+description: C#代码开发规范
+alwaysApply: false
+---
+# 基本原则
+
+- 代码结构简单，容易阅读、维护
+- 【强制】命名符合驼峰规则
+- 【强制】文件的命名和类名保持一致，命名空间应和目录保持一致
+- 【强制】公共方法要进行参数校验，遵循契约式编程规则
+- 【强制】公共类、方法必须要有注释
+- 【强制】不允许吃掉异常或捕捉后不做任何处理
+- 【建议】避免在循环中访问数据库、网络IO、多租赁接口
+
+
+# 文件与代码限制
+
+- 【建议】一个C#文件总是对应一个类，并总是以类名为文件名。如果代码较多的类，可以使用部分类(Partial class)
+- 【强制】代码缩进使用空格代替'tab'键，并总是4个空格
+- 【强制】单行代码不超过200个字符
+- 【强制】单个方法不超过100行
+- 【强制】单个文件不超过1000行
+
+
+# 命名风格
+
+命名规范主要涉及命名空间、类型、接口、属性、方法、变量等相关命名，其主要规范有：
+
+## 通用风格
+
+- 【强制】严禁使用拼音和英文混合的方式进行命名，更不允许使用中文的方式。
+  - 反例
+  
+    ```
+    public int GetPingfenByName(string userName)
+    {
+
+    }
+
+    class DictionaryType
+    {
+        public const string 系统异常 = "SystemException";
+
+        public const string 业务异常 = "BusinessException";
+
+    }
+    ```
+
+## 变量
+
+- 【强制】使用Pascal(单词首字母大写)命名方式对命名空间、类型、枚举类型、枚举值、事件、属性、方法、常量进行命名。
+  - 正例
+    ```
+    public class PersonManager
+    {
+
+    }
+    ```
+
+
+- 【强制】使用Camel(驼峰)命名方式对参数、变量。
+  - 正例
+    ```
+    public string GetUserByName(string userName)
+    {
+
+    }
+    ```
+
+
+- 【强制】使用Camel(驼峰)命名方式对私有字段进行命名,且以下划线开头。
+  - 正例
+    ```
+    private string _userName
+    ```
+
+- 【强制】禁止使用缩写，除URL、IO等能达成共识的缩写除外，使用缩写可全大写。
+  - 正例
+    ```
+    System.IO;
+    ```
+
+- 【建议】部分特例保持首字母大写方式，如：
+```
+UserId TenantId
+```
+
+
+- 【强制】接口以I做为前缀进行命名。
+  - 正例
+    ```
+    public interface IConvertor
+    {
+
+    }
+    ```
+
+
+- 【强制】抽象类以Abstract为前缀或者以Base为后缀进行命名。
+  - 正例
+    ```
+    public abstract class PersonBase
+    {
+
+    }
+    ```
+
+- 【强制】异步方法以Async结尾
+  - 正例
+    ```
+    public static async Task<int> AddAsync(int n, int m)
+    {
+        // async method
+    }  
+    ```
+
+- 【建议】泛型参数必须以T开头
+  - 正例
+```
+public class Counter<TValue> where TValue : class
+{
+
+}
+```
+ 
+- 【建议】在对任何东西命名时需要使用有意义的名称，并且保证单词拼写正确以及语法正确，避免使用拼音(地名等通用拼音除外)。
+  - 正例
+    ```
+    public string Name { get; set; }
+    ```
+
+  - 反例
+    ```
+    public string N { get; set; }
+    ```
+    
+## 类/接口
+
+- 【强制】异常类型以Exception为后缀
+  - 正例
+    ```
+    public class CustomException : Exception
+    {
+
+    }
+    ```
+
+
+- 【强制】数据访问类以Dao为后缀，类必须是internal static 
+  - 正例
+    ```
+    internal static class EmployeeDao
+    {
+    
+    }
+    ```
+
+- 【强制】服务实现和接口以Provider为后缀
+  - 正例
+    ```
+    public interface IAccountProvider
+    {
+
+    }
+    public class AccountProvider : IAccountProvider
+    {
+
+    }
+    ```
+
+## Namespace和DLL名称
+
+- 【强制】顶级Namespace(默认可视为AssemblyName)和DLL的命名规范保持一致，格式：`Beisen[.BU].{产品线/公共组件名称}[.子产品/模块/组件名称]`，建议不超过4级，最多5级。
+  (不约束C#代码中的Namespace层级，但C#代码中的Namespace前缀和AssemblyName必须相同)
+  - 说明：
+    - `Beisen` 必选，一定是首字母B大写，其它字母小写
+    - `[.BU]`  可选，且不建议加入，如果一定要有，为： `PPS/UTM/ATS/PaaS`
+    - `{产品线/公共组件名称}`  例如：`Recruitment/Assess/Assessment/Kafka/Steppe/Quark` 等一级产品线名称
+    - `[.子产品/模块/组件名称]` 可选，例如：`OnBoarding`
+  - 正例：`Beisen.Assessment.CustomReport / Beisen.Kafka / Beisen.PPS.TenantBase.I18N`
+- 【建议】命名空间和项目文件夹保持一致。
+
+
+# 注释
+
+需要写注释的范围：
+
+- 【强制】提供NuGet包引用，且Public的接口、类、枚举和方法，必须要有注释
+- 【强制】提供外部引用的WebAPI，必须要求注释
+
+注释用来对编写的代码进行说明，包括功能说明以及实现说明，这样可以大大的提高程序的可读性，另外规范的注释还可以通过工具来生成相应的API文档，C#的注释规范有以下几种：
+
+## 类注释
+
+```
+/// <summary>
+/// This is an entity class for Post.
+/// </summary>
+public class Post
+{
+
+}
+```
+
+## 属性及方法注释
+
+```
+/// <summary>
+/// Get post with id
+/// </summary>
+/// <param name="id">post's identity</param>
+/// <returns>post instance</returns>
+public Post GetPost(int id)
+{
+    //业务代码
+}
+```
+
+## 代码单行注释
+
+```
+// this is a single line comment
+```
+
+## 代码多行注释
+
+```
+/*
+this is comment1
+this is comment2
+*/
+```
+
+
+# 异常处理
+- 【强制】始终捕获特定的异常，而不是一般的异常和系统异常
+  - 反例
+    ```
+    try
+    {
+        // do somthing
+    }
+    catch (FileNotFoundException exception)
+    {
+
+        // do something
+
+        // 要么记日志，要么抛出
+
+    }
+    ```
+
+- 【建议】如果产生Exception，给用户提供一个友好的信息，记录相关的上下文，帮助排查问题。
+- 【建议】错误消息应能帮助用户解决问题。不要给出例如"应用程序发生异常","有一个错误"等信息，相反要给出具体的信息如“无法连接数据库。登录ID和密码错误”。
+- 【建议】不要在所有的方法中写try - catch。
+- 【建议】不写非常大的try - catch块。如果需要，为您执行每个任务编写单独的try - catch程序，在try - catch中只有一段特定的代码。这将帮助你找到哪一段代码产生的异常，你可以给特定的错误信息给用户。
+- 【建议】如果需要，可以写自己的自定义异常类。自定义异常通常继承自Exception，并以Exception命名结尾。请不要自ApplicationException继承异常或抛出、捕捉ApplicationException。
+- 【强制】当发生异常时，为了确保清理占用的资源，使用try / finally块，在finally子句中关闭资源。使用try / finally块，即使发生异常，也能确保资源释放。实现IDisposable 接口的实例必须使用try/finally 或using释放资源。
+  - 正例
+    ```
+    using (var file = File.Open("..."))
+    {
+        // do something
+    }
+    ```
+
+- 【强制】如果抛出新的异常类型, 应该将捕获的异常作为inner exception
+
+
+# 最佳实践
+
+- 自己实现的算法必须注释
+- 单个方法内的循环最大嵌套2层
+- 过多的循环嵌套容易造成代码阅读困难，可以通过重构、抽出函数等方式简化单个方法内的循环
+- 递归方法必须注释
+  递归方法稍不注意则容易造成StackOverflow，如有必要用到递归的地方，则需要注释清楚逻辑
+- 尽量避免MagicNumber出现，
+  - 正例：(在这个例子中，将`MaxRetry`定义为常量，则避免代码中突然出现的魔术数字，导致无法了解该数字的含义)
+  
+    ```
+    public class Example
+    {
+        /*
+        获取远程文件Content时的最大重试次数
+        */
+        const int MaxRetry = 3;
+        public byte[] GetContent()
+        {
+            var callCount = 1;
+            while (callCount < MaxRetry)
+            {
+                // do something
+                callCount++;
+            }
+            throw new MaxRetryException(...);
+        }
+    }
+    ```
+- 方法/属性定义之间留一个空行
+- async永远不要写async void，用async标识的方法，内部必须使用await，否则不能以async修饰
+- lambda表达式的形参名不能和函数参数或局部变量重名
+- 函数的参数个数不要太多，建议不超过6个，超过6个建议定义参数类
+- 构造函数避免执行耗时的操作
+- 静态构造函数或静态字段的初始化中避免执行可能抛出异常的操作
+- 变量定义建议使用var
+- 不需要的代码应删掉，项目中不应包含大量注释掉的代码
+- 使用Obsolete标签应该给出明确的理由，或者至少给出应该使用什么替代
+    ```
+    public class AccountProvider
+    {
+    
+        [Obsolete("该方法可以使用GetAccount代替，2019-4月后不再支持")]
+        public Account GetAccountByEmail(string email)
+        {
+        }
+    
+    
+        public List<Account> GetAccount(Query query)
+        {
+    
+        }
+    }
+    ```
+- 代码中应该有适当的空格和空行，如两个function中间应空一行，(  + - \* / = :  ) 左右各有1个空格
+    - 正例 
+    ```
+    public class Example
+    {
+        public void Method1()
+        {
+        }
+    
+        public int Add(int number1, int number2)
+        {
+            return number1 + number2 ;
+        }
+    }
+    ```
+
+# 原则解释
+
+- 一个project下的文件应根据功能划分在不同的目录下，文件的命名空间应和目录保持一致，不允许所有的文件都堆在根目录下
+- 公共方法要进行参数校验，遵循契约式编程规则。
+  - 正例: 使用ArgumentHelper进行参数校验
+  ```
+    public static DfsPath Parse(string path)
+    {   
+        ArgumentHelper.AssertNotEmpty(path, "path");
+        ...
+    }
+  ```
+    - 正例: 在.Net 4.0中，提供了Contract类来进行契约式编程
+    ```
+    Contract.Requires(denominator != 0, "The second argument can not be zero");
+    Contract.Ensures(Contract.Result<int>() != 0);
+    Contract.Invariant(this.denominator != 0);
+    ```
+
+- Dao类必须是静态类、静态方法，且不允许存在public方法
+  - 正例: 
+    ```
+    internal static class EmployeeDao
+    {
+        internal static Employee GetEmployee(int tenantId, int employeeId)
+        {
+    
+        }
+    }
+    ```
+
+- Provider 必须支持单例模式 
+    - 正例: 
+    ```
+    public AccountProvider : IAccountProvider
+    {
+        public static AccountProvider Instance;
+    }
+    ```
