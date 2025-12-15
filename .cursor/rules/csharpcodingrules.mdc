@@ -286,7 +286,7 @@ this is comment2
         const int MaxRetry = 3;
         public byte[] GetContent()
         {
-            var callCount = 1;
+            var callCount = 0;
             while (callCount < MaxRetry)
             {
                 // do something
